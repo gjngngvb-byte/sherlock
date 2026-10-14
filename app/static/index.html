@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0b1020">
+<title>Sherlock Web | Busca OSINT</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1020;--panel:#121a2e;--line:#26334d;--text:#edf3ff;--muted:#93a4c2;--cyan:#67e8f9;--violet:#a78bfa}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 20% 0%,#18264a 0,transparent 45%),var(--bg);color:var(--text);font:16px/1.5 Inter,ui-sans-serif,system-ui,sans-serif;min-height:100vh}
+main{width:min(980px,calc(100% - 32px));margin:0 auto;padding:52px 0 60px}.eyebrow{color:var(--cyan);font-size:12px;letter-spacing:.18em;text-transform:uppercase;font-weight:800}
+h1{font-size:clamp(34px,6vw,58px);line-height:1.04;letter-spacing:-.04em;margin:12px 0}h1 span{color:var(--cyan)}.lead{color:var(--muted);max-width:660px;margin:14px 0 28px}
+.panel{background:linear-gradient(145deg,rgba(22,32,55,.96),rgba(15,23,42,.96));border:1px solid var(--line);border-radius:22px;padding:24px;box-shadow:0 24px 70px #0003}
+label{display:block;color:#c8d5ed;font-size:13px;font-weight:700;margin-bottom:8px}input,select{width:100%;background:#0b1224;border:1px solid #34425f;border-radius:11px;padding:13px 14px;color:var(--text);font:inherit;outline:none}input:focus,select:focus{border-color:var(--cyan);box-shadow:0 0 0 3px #67e8f922}
+.row{display:grid;grid-template-columns:1fr 160px;gap:14px}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+button{border:0;border-radius:11px;padding:12px 17px;font:inherit;font-weight:800;cursor:pointer}.primary{background:var(--cyan);color:#071321}.secondary{background:#202c45;color:var(--text);border:1px solid #354461}button:disabled{opacity:.55;cursor:wait}
+.status{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:14px;margin-top:18px}.dot{width:8px;height:8px;border-radius:50%;background:#64748b}.dot.live{background:var(--cyan);box-shadow:0 0 15px var(--cyan)}
+.results-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:26px 0 12px}h2{font-size:19px;margin:0}.count{color:var(--cyan);font-variant-numeric:tabular-nums}
+.result{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 0;border-top:1px solid var(--line)}.result a{color:var(--cyan);text-decoration:none;overflow-wrap:anywhere}.result a:hover{text-decoration:underline}.site{font-weight:700}
+.empty{padding:28px 8px;color:var(--muted);text-align:center}.notice{margin-top:20px;color:#8ea0be;font-size:12px}.history{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.history button{font-size:12px;padding:7px 10px}
+@media(max-width:600px){main{padding-top:34px}.panel{padding:17px}.row{grid-template-columns:1fr}.result{align-items:flex-start;flex-direction:column;gap:4px}}
+</style>
+</head>
+<body><main>
+<div class="eyebrow">◈ Open-source OSINT workspace</div>
+<h1>Sherlock <span>Web</span></h1>
+<p class="lead">Pesquise a presença pública de um username em plataformas online. Uma interface direta para o mecanismo Sherlock, com resultados exportáveis e histórico no seu navegador.</p>
+<section class="panel">
+<form id="searchForm">
+<div class="row">
+<div><label for="username">USERNAME PARA INVESTIGAR</label><input id="username" name="username" placeholder="ex.: exemplo123" maxlength="39" pattern="[A-Za-z0-9._-]{1,39}" required autocomplete="off"></div>
+<div><label for="timeout">TIMEOUT POR SITE</label><select id="timeout"><option value="10">10 segundos</option><option value="15" selected>15 segundos</option><option value="30">30 segundos</option><option value="60">60 segundos</option></select></div>
+</div>
+<div class="actions"><button class="primary" id="submit" type="submit">⌕ Iniciar busca</button><button class="secondary" id="export" type="button" disabled>↓ Exportar CSV</button></div>
+</form>
+<div class="status"><span class="dot" id="dot"></span><span id="status">Pronto para iniciar. A busca consulta serviços públicos.</span></div>
+<div id="history" class="history"></div>
+</section>
+<div class="results-head"><h2>Resultados encontrados</h2><span class="count" id="count">0 encontrados</span></div>
+<section class="panel" id="results"><div class="empty">Os resultados aparecerão aqui após a busca.</div></section>
+<p class="notice">Uso responsável: usernames iguais não comprovam identidade. Respeite as leis, os termos de uso e a privacidade. A primeira busca pode demorar conforme a conectividade e as plataformas consultadas.</p>
+</main>
+<script>
+const $=s=>document.querySelector(s);let latest=[];
+const historyKey='sherlock-web-history-v1';
+function renderHistory(){let h=[];try{h=JSON.parse(localStorage.getItem(historyKey)||'[]')}catch{}$('#history').innerHTML=h.slice(0,6).map(x=>'<button class="secondary" type="button" data-user="'+x.replace(/["&<>]/g,'')+'">'+x.replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</button>').join('');$('#history').querySelectorAll('button').forEach(b=>b.onclick=()=>$('#username').value=b.dataset.user)}
+renderHistory();
+function setStatus(s,live=false){$('#status').textContent=s;$('#dot').className='dot'+(live?' live':'')}
+function render(items){latest=items;$('#count').textContent=items.length+' encontrados';$('#export').disabled=!items.length;if(!items.length){$('#results').innerHTML='<div class="empty">Nenhuma ocorrência identificada nesta busca. Isso não prova que a conta não exista.</div>';return}$('#results').innerHTML=items.map(x=>'<div class="result"><span class="site"></span><a target="_blank" rel="noopener noreferrer"></a></div>').join('');[...$('#results').querySelectorAll('.result')].forEach((el,i)=>{el.querySelector('.site').textContent=items[i].site;el.querySelector('a').textContent=items[i].url;el.querySelector('a').href=items[i].url})}
+$('#searchForm').addEventListener('submit',async e=>{e.preventDefault();const username=$('#username').value.trim();const btn=$('#submit');btn.disabled=true;btn.textContent='Buscando…';setStatus('Consultando plataformas públicas. Isso pode levar alguns minutos.',true);$('#results').innerHTML='<div class="empty">O Sherlock está consultando serviços. Aguarde…</div>';render([]);try{let r=await fetch('/api/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,timeout:Number($('#timeout').value),sites:[]})});let data=await r.json();if(!r.ok)throw Error(data.detail||'Falha na busca');render(data.results||[]);setStatus('Busca finalizada. '+(data.results||[]).length+' ocorrência(s) encontrada(s).');let h=[];try{h=JSON.parse(localStorage.getItem(historyKey)||'[]')}catch{}localStorage.setItem(historyKey,JSON.stringify([username,...h.filter(x=>x!==username)].slice(0,6)));renderHistory()}catch(err){$('#results').innerHTML='<div class="empty"></div>';$('#results .empty').textContent=err.message;setStatus('Não foi possível concluir a busca.')}finally{btn.disabled=false;btn.textContent='⌕ Iniciar busca'}});
+$('#export').onclick=()=>{let csv='Plataforma,URL\r\n'+latest.map(x=>'"'+String(x.site).replace(/"/g,'""')+'","'+String(x.url).replace(/"/g,'""')+'"').join('\r\n');let a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8;'}));a.download='sherlock-'+$('#username').value+'.csv';a.click();URL.revokeObjectURL(a.href)};
+</script></body></html>
