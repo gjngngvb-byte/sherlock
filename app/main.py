@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from pathlib import Path
-import asyncio, json, os, re, shutil, subprocess, sys
+import asyncio, json, os, re, shutil, subprocess, sys, tempfile
 
 app = FastAPI(title="Sherlock Web", version="1.1.0")
 INDEX = Path(__file__).parent / "static" / "index.html"
@@ -12,6 +12,21 @@ MAX_CONCURRENT = 2
 semaphore = asyncio.Semaphore(MAX_CONCURRENT)
 FOUND_RE = re.compile(r"^\[\+\]\s*(.+?):\s*(https?://\S+)")
 OTHER_RE = re.compile(r"^\[-\]\s*(.+?):\s*(.*)$")
+
+# Run Sherlock's Python API directly so progress begins when site checks begin,
+# without the CLI's unrelated online version-check delay.
+RUN_SCRIPT = r"""
+import json, sys
+from sherlock_project.sherlock import sherlock
+from sherlock_project.notify import QueryNotifyPrint
+username = sys.argv[1]
+timeout = float(sys.argv[2])
+with open(sys.argv[3], encoding="utf-8") as f:
+    site_data = json.load(f)
+notify = QueryNotifyPrint(verbose=False, print_all=True)
+sherlock(username, site_data, notify, timeout=timeout)
+notify.finish()
+"""
 
 
 class SearchRequest(BaseModel):
@@ -48,38 +63,44 @@ async def search_stream(req: SearchRequest):
     username = validate_request(req)
 
     async def generate():
+        temp_path = None
         async with semaphore:
             try:
                 from sherlock_project.sites import SitesInformation
                 sites_info = await asyncio.to_thread(SitesInformation)
                 sites_info.remove_nsfw_sites(do_not_remove=req.sites)
-                names = sorted(sites_info.sites.keys(), key=str.casefold)
+                site_data = {name: info.information for name, info in sites_info.sites.items()}
                 if req.sites:
                     requested = {s.casefold() for s in req.sites}
-                    names = [n for n in names if n.casefold() in requested]
+                    site_data = {name: info for name, info in site_data.items() if name.casefold() in requested}
+                    missing = [s for s in req.sites if s.casefold() not in {n.casefold() for n in site_data}]
+                    if missing:
+                        yield event({"type": "error", "message": "Plataforma(s) não encontrada(s): " + ", ".join(missing)})
+                        return
+                names = sorted(site_data.keys(), key=str.casefold)
+                if not site_data:
+                    yield event({"type": "error", "message": "A lista de plataformas está vazia."})
+                    return
+                with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", suffix=".json", delete=False) as temp:
+                    json.dump(site_data, temp, ensure_ascii=False)
+                    temp_path = temp.name
                 yield event({"type": "start", "username": username, "timeout": req.timeout,
                              "sites": names, "total": len(names), "engine_version": "0.16.2"})
             except Exception as exc:
                 yield event({"type": "error", "message": "Não foi possível carregar a lista atual de sites do Sherlock: " + str(exc)[:300]})
                 return
 
-            executable = shutil.which("sherlock")
-            cmd = ([executable] if executable else [sys.executable, "-u", "-m", "sherlock_project"])
-            cmd += [username, "--timeout", str(req.timeout), "--print-all", "--no-color"]
-            for site in req.sites:
-                cmd += ["--site", site]
-
-            output_lines = []
-            processed = set()
-            found = []
             try:
                 proc = await asyncio.create_subprocess_exec(
-                    *cmd,
+                    sys.executable, "-u", "-c", RUN_SCRIPT, username, str(req.timeout), temp_path,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.STDOUT,
                     env={**os.environ, "PYTHONUNBUFFERED": "1"},
                 )
                 yield event({"type": "running", "pid": proc.pid})
+                output_lines = []
+                processed = set()
+                found = []
                 while True:
                     raw = await proc.stdout.readline()
                     if not raw:
@@ -123,6 +144,12 @@ async def search_stream(req: SearchRequest):
                 yield event({"type": "error", "message": "O mecanismo Sherlock não está instalado no servidor."})
             except Exception as exc:
                 yield event({"type": "error", "message": "Falha durante a pesquisa: " + str(exc)[:300]})
+            finally:
+                if temp_path:
+                    try:
+                        Path(temp_path).unlink(missing_ok=True)
+                    except Exception:
+                        pass
 
     return StreamingResponse(generate(), media_type="application/x-ndjson",
                              headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"})
