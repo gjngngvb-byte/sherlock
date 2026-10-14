@@ -19,6 +19,8 @@ RUN_SCRIPT = r"""
 import json, sys
 from sherlock_project.sherlock import sherlock
 from sherlock_project.notify import QueryNotifyPrint
+from colorama import init
+init(strip=True, convert=False)
 username = sys.argv[1]
 timeout = float(sys.argv[2])
 with open(sys.argv[3], encoding="utf-8") as f:
