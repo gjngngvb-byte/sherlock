@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: sherlock-web
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
